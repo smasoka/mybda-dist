@@ -57,9 +57,14 @@ def _averaging_rows(time, ant1, ant2, uvw, flagged_rows, ubl=None):
     # Understand this
     # Need to index passed argument lists,
     # as atop contracts over dimensions not present in the output.
+
+    # Holds 0
     ant1 = ant1[0]
+    # Holds 1
     ant2 = ant2[0]
+    # Holds U position coordinate
     uvw = uvw[0][0]
+    # Holds False
     flagged_rows = flagged_rows[0]
 
     print ant1.shape
@@ -67,11 +72,12 @@ def _averaging_rows(time, ant1, ant2, uvw, flagged_rows, ubl=None):
     print uvw.shape
     print flagged_rows.shape
 
-    # Create empty array container with shape of the unique baselines
+    # Create empty array container with row dimenstion of the shape of ubl
     baseline_avg_rows = np.empty(ubl.shape[0], dtype=np.int32)
     print baseline_avg_rows.shape
     print
 
+    # Holds False variable
     unflagged = flagged_rows is False
     print unflagged
     print type(unflagged)
@@ -81,13 +87,13 @@ def _averaging_rows(time, ant1, ant2, uvw, flagged_rows, ubl=None):
     print "UBL SIZE " +str(ubl.size)
     print
 
-    # Foreach baseline
+    # Foreach unique baseline
     for bl, (a1, a2) in enumerate(ubl):
         print "bl : %s, a1 : %s, a2 : %s" %(bl, a1, a2)
         # Find rows associated with each baseline
-        # also removing flagged rows
+        #
         valid_rows = (ant1 == a1) & (ant2 == a2) & unflagged
-        # depending on the unflagged, valid_rows can be reduced, smaller
+        #
         print "VALID_ROWS " +str(valid_rows.shape)
         # print
         # Maximum EW distance for each baseline
@@ -107,6 +113,7 @@ print xds[0]
 print xds[1]
 
 print "Before atop for loop"
+# For each SCAN_NUMBER
 for ds in xds:
     # calls _averaging_rows
     # output block pattern ("bl",) --> array of baselines
