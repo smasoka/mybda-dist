@@ -14,18 +14,22 @@ def create_parser():
 args = create_parser().parse_args()
 
 
-# Find unique baselines in this Measurement Set
-# Get data from the Measurement Set
+# Find unique baselines  and Maximum baseline distace in this Measurement Set
+# Maximum baselines uses UVW values
 xds = list(xds_from_ms(args.ms,
-                       # We only need the antenna columns
-                       columns=("ANTENNA1", "ANTENNA2"),
+                       # We only need the antenna and uvw columns
+                       columns=("UVW", "ANTENNA1", "ANTENNA2"),
                        group_cols=[],
                        index_cols=[],
                        chunks={"row": 1e6}))
 
 # Should only have one dataset
 assert len(xds) == 1
+# The unique baseline for one scan is same for every scan in the Measurement Set
 ds = xds[0]
+
+# Calculate Maximum baseline
+bl_max_dist = da.stack(ds.UVW.data, my_ds.UVW.data for my_ds in xds, axis=1)
 
 # Need ant1 and ant2 to be int32 for the compound int64 below
 # to work
@@ -58,14 +62,14 @@ def _averaging_rows(time, ant1, ant2, uvw, flagged_rows, ubl=None):
     # Need to index passed argument lists,
     # as atop contracts over dimensions not present in the output.
 
-    # Holds 0
-    ant1 = ant1[0]
-    # Holds 1
-    ant2 = ant2[0]
-    # Holds U position coordinate
-    uvw = uvw[0][0]
-    # Holds False
-    flagged_rows = flagged_rows[0]
+    # # Holds 0
+    # ant1 = ant1[0]
+    # # Holds 1
+    # ant2 = ant2[0]
+    # # Holds U position coordinate
+    # uvw = uvw[0][0]
+    # # Holds False
+    # flagged_rows = flagged_rows[0]
 
     print ant1.shape
     print ant2.shape
@@ -75,12 +79,11 @@ def _averaging_rows(time, ant1, ant2, uvw, flagged_rows, ubl=None):
     # Create empty array container with row dimenstion of the shape of ubl
     baseline_avg_rows = np.empty(ubl.shape[0], dtype=np.int32)
     print baseline_avg_rows.shape
-    print
 
-    # Holds False variable
-    unflagged = flagged_rows is False
-    print unflagged
-    print type(unflagged)
+    baseline_num_rows = np.empty(ubl.shape[0], dtype=np.int32)
+
+    # Holds True for all rows that are False in flagged_rows
+    unflagged = flagged_rows == False
 
     print "UBL"
     print "UBL SHAPE " +str(ubl.shape)
@@ -91,18 +94,33 @@ def _averaging_rows(time, ant1, ant2, uvw, flagged_rows, ubl=None):
     for bl, (a1, a2) in enumerate(ubl):
         print "bl : %s, a1 : %s, a2 : %s" %(bl, a1, a2)
         # Find rows associated with each baseline
-        #
+
+        # array of booleans
         valid_rows = (ant1 == a1) & (ant2 == a2) & unflagged
-        #
         print "VALID_ROWS " +str(valid_rows.shape)
-        # print
+
         # Maximum EW distance for each baseline
-        bl_max_ew = np.abs(uvw[valid_rows, 0]).sum(axis=0)
+        # Maximum EW distance is the sum of all "u" values in UVW
+        bl_max_ew = np.abs(uvw[valid_rows, 0]).sum()
         print "MAX EW DISTANCE " +str(bl_max_ew)
 
         # Figure out what the averaged number of rows will be
         # I think np.divmod is the way to do this
         # baseline_avg_rows[i] = np.divmod(valid_rows)
+        # Number (count) of valid_rows for this baseline
+        rows = da.where(valid_rows == True)[0].size
+        baseline_num_rows.append(rows)
+        # basically for each ubl (120) array, baseline_avg_rows (120) each
+        # containing the number of lines/rows (int) : baseline_num_rows
+
+        # After the BDA, the row number will change, so I need to calculate
+        # how they will change so I can create dask array(with chucking)
+        # to store these new compressed rows. This is where bl_max_ew variable
+        # comes in. Right?
+
+
+
+
 
     return baseline_avg_rows
 
