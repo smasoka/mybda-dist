@@ -29,7 +29,10 @@ assert len(xds) == 1
 ds = xds[0]
 
 # Calculate Maximum baseline
-bl_max_dist = da.stack(ds.UVW.data, my_ds.UVW.data for my_ds in xds, axis=1)
+uvw = ds.UVW.data
+bl_max_dist = da.sqrt(da.max(da.sum(uvw**2, axis=1)))
+
+# bl_max_dist = da.stack(ds.UVW.data, my_ds.UVW.data for my_ds in xds, axis=1)
 
 # Need ant1 and ant2 to be int32 for the compound int64 below
 # to work
@@ -55,8 +58,13 @@ xds = list(xds_from_ms(args.ms,
                        index_cols=[],
                        chunks={"row": 1e9}))
 
+# max_scan_uvws = [da.sqrt(da.max(da.sum(ds.UVW.data**2, axis=1)))
+#                  for ds in xds]
 
-def _averaging_rows(time, ant1, ant2, uvw, flagged_rows, ubl=None):
+# max_bl_dist = da.max(max_scan_uvws)
+
+
+def _averaging_rows(time, ant1, ant2, uvw, flagged_rows, bl_max_dist, ubl=None):
     # TODO(smasoka)
     # Understand this
     # Need to index passed argument lists,
@@ -80,7 +88,7 @@ def _averaging_rows(time, ant1, ant2, uvw, flagged_rows, ubl=None):
     baseline_avg_rows = np.empty(ubl.shape[0], dtype=np.int32)
     print baseline_avg_rows.shape
 
-    baseline_num_rows = np.empty(ubl.shape[0], dtype=np.int32)
+    bl_num_rows = np.empty(ubl.shape[0], dtype=np.int32)
 
     # Holds True for all rows that are False in flagged_rows
     unflagged = flagged_rows == False
@@ -106,23 +114,18 @@ def _averaging_rows(time, ant1, ant2, uvw, flagged_rows, ubl=None):
 
         # Figure out what the averaged number of rows will be
         # I think np.divmod is the way to do this
-        # baseline_avg_rows[i] = np.divmod(valid_rows)
         # Number (count) of valid_rows for this baseline
-        rows = da.where(valid_rows == True)[0].size
-        baseline_num_rows.append(rows)
+        bl_num_rows.append(da.where(valid_rows == True)[0].size)
         # basically for each ubl (120) array, baseline_avg_rows (120) each
         # containing the number of lines/rows (int) : baseline_num_rows
 
-        # After the BDA, the row number will change, so I need to calculate
-        # how they will change so I can create dask array(with chucking)
-        # to store these new compressed rows. This is where bl_max_ew variable
-        # comes in. Right?
+        # bl_num_rows, bl_max_ew and bl_max_dist are all the variables needed to do the
+        # calculation.
+        avg_ratio = bl_max_ew // bl_max_dist
+        baseline_avg_rows, baseline_avg_rows_rem = np.divmod(bl_num_rows,avg_ratio)
 
 
-
-
-
-    return baseline_avg_rows
+    return baseline_avg_rows, baseline_avg_rows_rem
 
 scan_baseline_avg_rows = []
 
@@ -149,6 +152,7 @@ for ds in xds:
                             ds.ANTENNA2.data, ("row",),
                             ds.UVW.data, ("row", "(u,v,w)"),
                             ds.FLAG_ROW.data, ("row",),
+                            bl_max_dist, "i",
                             # Must tell dask about the number of baselines
                             new_axes={"bl": ubl.shape[0]},
                             # Pass through ubl to all instances of
