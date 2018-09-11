@@ -46,7 +46,7 @@ ubl = da.unique(bl)
 # dask compute, convert back to int32 and reshape
 ubl = da.compute(ubl)[0].view(np.int32).reshape(-1, 2)
 
-print "%s unique baselines" % ubl.shape[0]
+# print "%s unique baselines" % ubl.shape[0]
 # We have unique baselines
 
 # Now find number of averaged rows per scan, per baseline
@@ -70,70 +70,64 @@ def _averaging_rows(time, ant1, ant2, uvw, flagged_rows, bl_max_dist, ubl=None):
     # Need to index passed argument lists,
     # as atop contracts over dimensions not present in the output.
 
-    # # Holds 0
-    # ant1 = ant1[0]
-    # # Holds 1
-    # ant2 = ant2[0]
-    # # Holds U position coordinate
-    # uvw = uvw[0][0]
-    # # Holds False
-    # flagged_rows = flagged_rows[0]
+    # Holds 0
+    ant1 = ant1[0]
+    # Holds 1
+    ant2 = ant2[0]
+    # Holds U position coordinate
+    uvw = uvw[0][0]
+    # Holds False
+    flagged_rows = flagged_rows[0]
 
     print ant1.shape
     print ant2.shape
     print uvw.shape
     print flagged_rows.shape
 
-    # Create empty array container with row dimenstion of the shape of ubl
-    baseline_avg_rows = np.empty(ubl.shape[0], dtype=np.int32)
-    print baseline_avg_rows.shape
-
     bl_num_rows = np.empty(ubl.shape[0], dtype=np.int32)
-
     # Holds True for all rows that are False in flagged_rows
     unflagged = flagged_rows == False
 
-    print "UBL"
-    print "UBL SHAPE " +str(ubl.shape)
-    print "UBL SIZE " +str(ubl.size)
-    print
+    # print "UBL"
+    # print "UBL SHAPE " +str(ubl.shape)
+    # print "UBL SIZE " +str(ubl.size)
+    # print
 
     # Foreach unique baseline
     for bl, (a1, a2) in enumerate(ubl):
-        print "bl : %s, a1 : %s, a2 : %s" %(bl, a1, a2)
+        # print "bl : %s, a1 : %s, a2 : %s" %(bl, a1, a2)
         # Find rows associated with each baseline
 
         # array of booleans
         valid_rows = (ant1 == a1) & (ant2 == a2) & unflagged
-        print "VALID_ROWS " +str(valid_rows.shape)
+        # print "VALID_ROWS " +str(valid_rows.shape)
 
         # Maximum EW distance for each baseline
         # Maximum EW distance is the sum of all "u" values in UVW
         bl_max_ew = np.abs(uvw[valid_rows, 0]).sum()
-        print "MAX EW DISTANCE " +str(bl_max_ew)
+        # print "MAX EW DISTANCE " +str(bl_max_ew.shape)
 
         # Figure out what the averaged number of rows will be
         # I think np.divmod is the way to do this
         # Number (count) of valid_rows for this baseline
-        bl_num_rows.append(da.where(valid_rows == True)[0].size)
         # basically for each ubl (120) array, baseline_avg_rows (120) each
         # containing the number of lines/rows (int) : baseline_num_rows
 
         # bl_num_rows, bl_max_ew and bl_max_dist are all the variables needed to do the
         # calculation.
-        avg_ratio = bl_max_ew // bl_max_dist
-        baseline_avg_rows, baseline_avg_rows_rem = np.divmod(bl_num_rows,avg_ratio)
+        avg_ratio = bl_max_ew / bl_max_dist
+        baseline_avg_rows, baseline_avg_rows_rem = np.divmod(valid_rows.sum(),avg_ratio)
+        bl_num_rows[bl] = baseline_avg_rows
 
-
-    return baseline_avg_rows, baseline_avg_rows_rem
+    return bl_num_rows
 
 scan_baseline_avg_rows = []
 
 # Print the xarray Dataset
-print xds[0]
-print xds[1]
-
-print "Before atop for loop"
+# print xds[0]
+# print xds[1]
+#
+# print "Before atop for loop"
 # For each SCAN_NUMBER
 for ds in xds:
     # calls _averaging_rows
@@ -152,7 +146,7 @@ for ds in xds:
                             ds.ANTENNA2.data, ("row",),
                             ds.UVW.data, ("row", "(u,v,w)"),
                             ds.FLAG_ROW.data, ("row",),
-                            bl_max_dist, "i",
+                            bl_max_dist, (),
                             # Must tell dask about the number of baselines
                             new_axes={"bl": ubl.shape[0]},
                             # Pass through ubl to all instances of
@@ -163,4 +157,4 @@ for ds in xds:
 
 
 
-dask.compute(scan_baseline_avg_rows)
+print dask.compute(scan_baseline_avg_rows) # scheduler="sync"
