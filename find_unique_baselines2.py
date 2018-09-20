@@ -63,63 +63,92 @@ xds = list(xds_from_ms(args.ms,
 
 # max_bl_dist = da.max(max_scan_uvws)
 
+longest_bl_bins = 1
 
-def _averaging_rows(time, ant1, ant2, uvw, flagged_rows, bl_max_dist, ubl=None):
+def _averaging_rows(time, ant1, ant2, uvw, flagged_rows, bl_max_dist, longest_bl_bins=None, ubl=None):
     # TODO(smasoka)
     # Understand this
     # Need to index passed argument lists,
     # as atop contracts over dimensions not present in the output.
-
-    # Holds 0
     ant1 = ant1[0]
-    # Holds 1
     ant2 = ant2[0]
-    # Holds U position coordinate
     uvw = uvw[0][0]
-    # Holds False
     flagged_rows = flagged_rows[0]
 
-    print ant1.shape
-    print ant2.shape
-    print uvw.shape
-    print flagged_rows.shape
+#     print ant1.shape
+#     print ant2.shape
+#     print uvw.shape
+#     print flagged_rows.shape
 
-    bl_num_rows = np.empty(ubl.shape[0], dtype=np.int32)
-    # Holds True for all rows that are False in flagged_rows
+    # Create empty array container for number of average rows
+    # with shape of the unique baselines
+    bl_avg_rows = np.empty(ubl.shape[0], dtype=np.int32)
+    # print baseline_avg_rows.shape
+
+    # Create an empty array container for number of valid rows in each baseline
+    # with the shape of unique baselines
+    bl_out_rows = np.empty(ubl.shape[0], dtype=np.int32)
+    bl_nrows = np.empty(ubl.shape[0], dtype=np.int32)
+
     unflagged = flagged_rows == False
 
-    # print "UBL"
-    # print "UBL SHAPE " +str(ubl.shape)
-    # print "UBL SIZE " +str(ubl.size)
-    # print
+#     print "UBL"
+#     print "UBL SHAPE " +str(ubl.shape)
+#     print "UBL SIZE " +str(ubl.size)
+#     print
 
-    # Foreach unique baseline
+    # Foreach baseline
     for bl, (a1, a2) in enumerate(ubl):
         # print "bl : %s, a1 : %s, a2 : %s" %(bl, a1, a2)
+
         # Find rows associated with each baseline
-
-        # array of booleans
+        # also removing flagged rows
         valid_rows = (ant1 == a1) & (ant2 == a2) & unflagged
-        # print "VALID_ROWS " +str(valid_rows.shape)
-
+        # depending on the unflagged, valid_rows can be reduced, smaller
+        print "VALID_ROWS " +str(valid_rows)
+        print "VALID_ROWS SHAPE" +str(valid_rows.shape)
+        # print
         # Maximum EW distance for each baseline
-        # Maximum EW distance is the sum of all "u" values in UVW
         bl_max_ew = np.abs(uvw[valid_rows, 0]).sum()
-        # print "MAX EW DISTANCE " +str(bl_max_ew.shape)
+        # print "MAX EW DISTANCE " +str(bl_max_ew)
+
+        # Get the number of rows for this baseline
+        # bl_nrows[bl] = np.where(valid_rows == True)[0].size
+        bl_nrows[bl] = valid_rows.sum()
+        # print "BL ROWS " +str(type(bl_nrows))
+        # print "BL ROWS" +str(bl_nrows)
 
         # Figure out what the averaged number of rows will be
         # I think np.divmod is the way to do this
+        # baseline_avg_rows[i] = np.divmod(valid_rows)
         # Number (count) of valid_rows for this baseline
+        # baseline_num_rows.append(da.where(valid_rows == True)[0].size)
         # basically for each ubl (120) array, baseline_avg_rows (120) each
         # containing the number of lines/rows (int) : baseline_num_rows
 
         # bl_num_rows, bl_max_ew and bl_max_dist are all the variables needed to do the
         # calculation.
-        avg_ratio = bl_max_ew / bl_max_dist
-        baseline_avg_rows, baseline_avg_rows_rem = np.divmod(valid_rows.sum(),avg_ratio)
-        bl_num_rows[bl] = baseline_avg_rows
+        # avg_ratio = bl_max_ew / bl_max_dist
+        # we need to multiply the ratio with the longest baseline bins.
+        avg_ratio = (bl_max_dist / bl_max_ew) * longest_bl_bins
 
-    return bl_num_rows
+        # Get the bl_avg_rows by dividing valid rows with the avg ratio.
+        # Get the remainder as well
+        bl_avg_rows, bl_avg_rows_rem = np.divmod(valid_rows.sum(),avg_ratio)
+
+        # Deal with the remainder
+        # Create an additional "space/row" for the remainder rows to be averaged
+        if bl_avg_rows_rem > 0:
+            bl_avg_rows += 1
+
+        bl_out_rows[bl] = bl_avg_rows
+
+        print "bl_out_rows" +str(bl_out_rows[bl])
+        print "bl_nrows" +str(bl_nrows[bl])
+
+        # Get the remainder.
+
+    return bl_out_rows
 
 scan_baseline_avg_rows = []
 
@@ -147,6 +176,7 @@ for ds in xds:
                             ds.UVW.data, ("row", "(u,v,w)"),
                             ds.FLAG_ROW.data, ("row",),
                             bl_max_dist, (),
+                            longest_bl_bins, (),
                             # Must tell dask about the number of baselines
                             new_axes={"bl": ubl.shape[0]},
                             # Pass through ubl to all instances of
@@ -157,4 +187,5 @@ for ds in xds:
 
 
 
-print dask.compute(scan_baseline_avg_rows) # scheduler="sync"
+results = dask.compute(scan_baseline_avg_rows) # scheduler="sync"
+print results
