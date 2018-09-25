@@ -2,13 +2,21 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import argparse
 import numpy as np
+from xarrayms import xds_from_ms
 
+def create_parser():
+    p = argparse.ArgumentParser()
+    p.add_argument("ms")
+    return p
+
+args = create_parser().parse_args()
 
 def _avg_time_bins(max_ew, max_uvw, longest_baseline_bins=2):
     return np.ceil(max_ew / max_uvw).astype(np.int32) * longest_baseline_bins
 
-def baseline_average_scan(time, ant1, ant2, uvw, data, flag_row, max_uvw):
+def baseline_average_scan(time, ant1, ant2, uvw, flag_row, max_uvw):
     # Find unique baselines
     baselines = np.stack([ant1, ant2], axis=1)
     ubl, inv = np.unique(baselines, return_inverse=True, axis=0)
@@ -54,3 +62,20 @@ def baseline_average_scan(time, ant1, ant2, uvw, data, flag_row, max_uvw):
             avg_uvw[out_rows:, :] = bl_uvw[out_rows*bins:, :].mean(axis=0)
 
     return data
+
+# Main Method
+# Read the MS
+xds = list(xds_from_ms(args.ms,
+                       columns=["TIME", "ANTENNA1", "ANTENNA2",
+                                "UVW", "FLAG_ROW"],
+                       group_cols=[],
+                       index_cols=[],
+                       chunks={"row": 1e9}))
+
+ds = xds[0]
+max_uvw = np.sqrt(np.max(np.sum(ds.UVW.data ** 2, axis=1))).compute()
+
+# Call the baseline_average_scan function
+# baseline_average_scan(time, ant1, ant2, uvw, data, flag_row, max_uvw):
+baseline_average_scan(ds.TIME.data, ds.ANTENNA1.data, ds.ANTENNA2.data,
+                      ds.UVW.data, ds.FLAG_ROW, max_uvw)
